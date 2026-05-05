@@ -2,7 +2,7 @@
 
 Um monitor de servidores Linux (VPS) elegante, stateless e em tempo real. Acompanhe CPU, RAM, Disco, Rede e Uptime de múltiplos servidores em uma única dashboard.
 
-![VPS Monitor](front-end/public/vite.svg) *Interface moderna com Dark Mode e animações.*
+![VPS Monitor] *Interface moderna com Dark Mode e animações.*
 
 ## 📋 Requisitos
 
