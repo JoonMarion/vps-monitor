@@ -1,5 +1,7 @@
 # Deploy seguro em Ubuntu 24.04 com Nginx existente
 
+Para executar com menos ações manuais, veja [quick-deploy.md](quick-deploy.md). O pacote inclui `install.sh`, que automatiza este fluxo para Nginx/PostgreSQL nativos no Ubuntu, verifica conflitos e preserva segredos em retomadas.
+
 Destino informado: **vps-monitor.net**, VPS **89.117.75.166**. Este roteiro adiciona um serviço próprio ao Nginx instalado no host. Se o Nginx for gerenciado por Docker, Coolify ou outro painel, integre pelo painel: os caminhos e o socket deste roteiro precisam ser adaptados.
 
 Fluxo: navegador → HTTPS/Nginx → socket Unix → Gunicorn/Flask → PostgreSQL e SSH. O frontend já compilado é servido pela aplicação. Node, Vite e o servidor Flask de desenvolvimento não rodam em produção.
@@ -64,6 +66,8 @@ sudo /opt/vps-monitor/.venv/bin/python -m pip install --disable-pip-version-chec
 O lock fornecido é destinado a **Ubuntu 24.04 x86-64 / Python 3.12**. Confira `uname -m` e `python3 --version`; para ARM ou outra versão de Python, gere e audite um lock compatível. O código e o ambiente devem continuar pertencendo a root, legíveis e sem permissão de escrita para `vps-monitor`. As dependências foram atualizadas após a auditoria; a versão nova do Paramiko exige algoritmos SSH modernos, incluindo SHA-2 para assinaturas RSA.
 
 ## 3. Configurar o banco e os segredos
+
+**Para o PostgreSQL já instalado na mesma VPS, com um banco `vps_monitor` novo, siga [postgres-local.md](postgres-local.md) nesta etapa.** Ele usa socket local, autenticação peer e uma role sem senha exclusiva do serviço. O `localhost` do `.env` no computador não aponta automaticamente para o banco da VPS; os dados locais precisam de uma transferência separada se você quiser preservá-los em produção.
 
 Use um banco dedicado. Para banco remoto, habilite verificação TLS de identidade, usando a CA indicada pelo provedor. Exemplo de formato:
 

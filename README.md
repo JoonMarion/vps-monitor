@@ -84,6 +84,10 @@ Todas as operações de escrita exigem o cabeçalho `X-CSRF-Token` obtido em `/a
 
 O roteiro completo para **Ubuntu 24.04, Nginx existente e vps-monitor.net** está em [deploy/ubuntu24.md](deploy/ubuntu24.md). Inclui pacote sem segredos, Gunicorn por socket Unix, unit systemd com privilégios reduzidos, limites do Nginx, HTTPS/renovação, permissões do banco e validação da identidade SSH.
 
+O [deploy em três ações](deploy/quick-deploy.md) usa o instalador `deploy/install.sh` para automatizar a primeira publicação em Ubuntu 24.04 com Nginx e PostgreSQL nativos no host. A configuração existente é verificada antes das alterações; o banco da aplicação é novo e os dados locais não são importados automaticamente.
+
+O endereço atual do monitor é `vps-monitor.freemyip.com`. O instalador pede a URL real do FreeMyIP por entrada oculta quando o apontamento ainda precisa ser feito, sem salvar o token em arquivo ou passá-lo na linha de comando. Um hostname diferente pode ser informado com `--domain`; as configurações HTTPS e de sessão são geradas para o nome escolhido.
+
 Execute `npm.cmd run build` em `front-end` e `python deploy/build_package.py` na raiz para gerar `.artifacts/vps-monitor-release.tar.gz`. O backend serve `front-end/dist`; Node/Vite não são necessários no servidor. Os modelos ficam em `deploy/` e o lock com versões e hashes para Ubuntu x86-64/Python 3.12 em `back-end/requirements-production.lock`.
 
 Com `APP_ENV=production`, o backend exige cookies seguros, domínios confiáveis, debug desabilitado e fingerprint SSH no cadastro. O banco é inicializado explicitamente por `flask --app app init-db`; o serviço não cria tabelas automaticamente. A quota padrão é de 10 VPS por conta. Configure `SSH_ALLOWED_PORTS` com as portas autorizadas. A fingerprint é salva com as credenciais criptografadas, sem alteração no schema das tabelas existentes.

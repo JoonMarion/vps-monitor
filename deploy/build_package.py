@@ -10,7 +10,7 @@ FILES = (
     "back-end/requirements.txt", "back-end/requirements-production.txt", "back-end/requirements-production.lock",
     "deploy/gunicorn.conf.py", "deploy/vps-monitor.service", "deploy/.env.production.example",
     "deploy/nginx/limits.conf", "deploy/nginx/proxy.conf", "deploy/nginx/bootstrap.conf", "deploy/nginx/site.conf",
-    "deploy/ubuntu24.md",
+    "deploy/ubuntu24.md", "deploy/postgres-local.md", "deploy/init_local_postgres.py", "deploy/install.sh", "deploy/quick-deploy.md", "deploy/render_nginx.py", "deploy/freemyip.py",
 )
 
 
