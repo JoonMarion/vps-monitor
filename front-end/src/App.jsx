@@ -1,23 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
-
-// ─── Simulated SSH fetch (replace with your real backend) ──────────────────
-// In production, replace `fetchVPSData` with a call to your backend API
-// that runs SSH commands and returns the parsed data.
-
-// In production, replace `fetchVPSData` with a call to your backend API
-// that runs SSH commands and returns the parsed data.
-
-async function fetchVPSData() {
-  const res = await fetch("/api/vps");
-  if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-  const data = await res.json();
-  return data.map((s) => ({ ...s, lastChecked: new Date(s.lastChecked) }));
-}
+import { useState, useEffect, useCallback, useRef } from "react";
+import AuthScreen from "./AuthScreen";
+import { apiRequest } from "./api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
-const pct = (used, total) => Math.round((used / total) * 100);
+const pct = (used, total) => total > 0 ? Math.round((used / total) * 100) : 0;
 
 function statusColor(status, cpu, disk) {
+  if (status === "connecting") return "#78a7ff";
   if (status === "offline") return "#ff3b3b";
   const diskPct = typeof disk === "object" ? pct(disk.used, disk.total) : disk;
   if (cpu > 85 || diskPct > 90) return "#ffaa00";
@@ -79,7 +68,7 @@ function Gauge({ value, label }) {
 function StatusDot({ status, cpu, disk }) {
   const color = statusColor(status, cpu, disk);
   return (
-    <span style={{ position: "relative", display: "inline-block", width: 10, height: 10, marginRight: 6 }}>
+    <span style={{ position: "relative", display: "inline-block", width: 10, height: 10, marginRight: 6, flexShrink: 0 }}>
       <span style={{
         display: "block", width: 10, height: 10, borderRadius: "50%",
         background: color, boxShadow: `0 0 6px ${color}`,
@@ -95,7 +84,20 @@ function StatusDot({ status, cpu, disk }) {
   );
 }
 
+function ConnectionProgress({ server, compact = false }) {
+  return (
+    <div className={`connection-progress${compact ? " compact" : ""}`} role="status">
+      <span className="connection-spinner" aria-hidden="true" />
+      <div>
+        <strong>Conectando à VPS...</strong>
+        <p>{compact ? "Tentando conexão SSH e coletando métricas." : `Tentando conexão SSH em ${server.ip}, porta ${server.port || 22}. As métricas aparecerão assim que a coleta terminar.`}</p>
+      </div>
+    </div>
+  );
+}
+
 function ServerCard({ server, selected, onClick }) {
+  const connecting = server.status === "connecting";
   const diskPct = pct(server.disk.used, server.disk.total);
   const ramPct = pct(server.ram.used, server.ram.total);
   const sc = statusColor(server.status, server.cpu, server.disk);
@@ -103,6 +105,8 @@ function ServerCard({ server, selected, onClick }) {
   return (
     <div
       onClick={onClick}
+      className="server-card"
+      aria-busy={connecting}
       style={{
         background: selected ? "#0d0d1a" : "#080810",
         border: `1px solid ${selected ? sc : "#1e1e3a"}`,
@@ -122,7 +126,7 @@ function ServerCard({ server, selected, onClick }) {
         }} />
       )}
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, gap: 8, flexWrap: "wrap" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <StatusDot status={server.status} cpu={server.cpu} disk={server.disk} />
@@ -139,10 +143,11 @@ function ServerCard({ server, selected, onClick }) {
           background: `${sc}18`, border: `1px solid ${sc}44`,
           borderRadius: 4, padding: "2px 8px", letterSpacing: 1,
         }}>
-          {server.status.toUpperCase()}
+          {connecting ? "CONECTANDO" : server.status.toUpperCase()}
         </div>
       </div>
 
+      {connecting ? <ConnectionProgress server={server} compact /> : <>
       <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 16 }}>
         <Gauge value={Math.round(server.cpu)} label="CPU" />
         <Gauge value={ramPct} label="RAM" />
@@ -162,14 +167,24 @@ function ServerCard({ server, selected, onClick }) {
           </div>
         ))}
       </div>
+      {server.error_details && <p className="connection-error">{server.error_details}</p>}
+      </>}
     </div>
   );
 }
 
-function DetailPanel({ server, onDelete }) {
+function DetailPanel({ server, onDelete, deleting }) {
   if (!server) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#333", fontFamily: "monospace", fontSize: 13 }}>
       ← selecione um servidor
+    </div>
+  );
+
+  if (server.status === "connecting") return (
+    <div className="connecting-details" aria-busy="true">
+      <h2>{server.name}</h2>
+      <p>{server.ip} · {server.location}</p>
+      <ConnectionProgress server={server} />
     </div>
   );
 
@@ -190,16 +205,18 @@ function DetailPanel({ server, onDelete }) {
   ];
 
   return (
-    <div style={{ height: "100%", overflowY: "auto" }}>
+    <div style={{ height: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, paddingBottom: 16, borderBottom: "1px solid #1e1e3a" }}>
         <StatusDot status={server.status} cpu={server.cpu} disk={server.disk} />
         <h2 style={{ margin: 0, fontSize: 20, fontFamily: "'JetBrains Mono', monospace", color: "#e8e8ff" }}>
           {server.name}
         </h2>
         <span style={{ marginLeft: "auto", fontSize: 11, color: "#444", fontFamily: "monospace" }}>
-          checked {server.lastChecked.toLocaleTimeString()}
+          {server.lastChecked ? `checked ${server.lastChecked.toLocaleTimeString()}` : "ainda não verificado"}
         </span>
       </div>
+
+      {server.error_details && <div className="error-message" role="status" style={{ marginBottom: 20 }}>{server.error_details}</div>}
 
       {/* Metric bars */}
       <div style={{ display: "grid", gap: 18, marginBottom: 24 }}>
@@ -233,6 +250,7 @@ function DetailPanel({ server, onDelete }) {
       </div>
 
       <button 
+        disabled={deleting}
         onClick={() => {
           if (confirm(`Tem certeza que deseja remover o servidor ${server.name}?`)) {
             onDelete(server.id);
@@ -244,7 +262,7 @@ function DetailPanel({ server, onDelete }) {
           fontSize: 12, fontFamily: "monospace", letterSpacing: 1, transition: "0.2s"
         }}
       >
-        REMOVER SERVIDOR
+        {deleting ? "REMOVENDO..." : "REMOVER SERVIDOR"}
       </button>
 
       {/* Load avg visual */}
@@ -267,91 +285,197 @@ function DetailPanel({ server, onDelete }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [servers, setServers] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(new Date());
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [formData, setFormData] = useState({ name: "", ip: "", location: "Brasil", user: "root", ssh_key: "", password: "", sudo_password: "" });
+  const [user, setUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionError, setSessionError] = useState("");
+  const [attempt, setAttempt] = useState(0);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await fetchVPSData();
-      setServers(data);
-      setLastRefresh(new Date());
-    } catch (e) {
-      console.error("Error fetching servers:", e);
-    }
-    setLoading(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    apiRequest("/api/auth/me", { signal: controller.signal })
+      .then((data) => {
+        if (!controller.signal.aborted) setUser(data.user);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setSessionError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCheckingSession(false);
+      });
+    return () => controller.abort();
+  }, [attempt]);
+
+  const sessionExpired = useCallback(() => {
+    setUser(null);
+    setCheckingSession(true);
+    setSessionError("");
+    setAttempt((value) => value + 1);
   }, []);
+
+  async function logout() {
+    await apiRequest("/api/auth/logout", { method: "POST" });
+    setUser(null);
+  }
+
+  if (checkingSession) return <main className="session-state" role="status">Carregando sua conta...</main>;
+  if (sessionError) return (
+    <main className="session-state">
+      <p className="error-message" role="alert">{sessionError}</p>
+      <button className="primary-button" onClick={sessionExpired}>Tentar novamente</button>
+    </main>
+  );
+  if (!user) return <AuthScreen onAuthenticated={setUser} />;
+  return <Dashboard key={user.id} user={user} onLogout={logout} onSessionExpired={sessionExpired} />;
+}
+
+const emptyServerForm = { name: "", ip: "", port: 22, location: "Brasil", user: "root", ssh_key: "", password: "", passphrase: "" };
+
+function connectingServer(server) {
+  return {
+    ...server, status: "connecting", lastChecked: null, cpu: 0,
+    ram: { used: 0, total: 0 }, disk: { used: 0, total: 0 },
+    load: [0, 0, 0], network: { rx: "—", tx: "—" },
+    uptime: "—", os: "—", processes: 0,
+  };
+}
+
+function Dashboard({ user, onLogout, onSessionExpired }) {
+  const [servers, setServers] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [formData, setFormData] = useState({ ...emptyServerForm });
+  const pollingController = useRef(null);
+  const selected = servers.find((server) => server.id === selectedId) || null;
+  const refresh = () => {
+    // Stop an older response from replacing a newly added, connecting card.
+    pollingController.current?.abort();
+    setRefreshVersion((value) => value + 1);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    pollingController.current = controller;
+    let timeout;
+    async function poll() {
+      setLoading(true);
+      try {
+        const data = await apiRequest("/api/vps", { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        setServers(data.map((server) => ({ ...server, lastChecked: new Date(server.lastChecked) })));
+        setLastRefresh(new Date());
+        setError("");
+      } catch (failure) {
+        if (controller.signal.aborted) return;
+        if (failure.status === 401) {
+          onSessionExpired();
+          return;
+        }
+        setError(failure.message);
+        setServers((current) => current.map((server) => server.status === "connecting" ? {
+          ...server, status: "offline",
+          error_details: `Não foi possível verificar a conexão. ${failure.message}`,
+        } : server));
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          timeout = setTimeout(poll, 30000);
+        }
+      }
+    }
+    poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [refreshVersion, onSessionExpired]);
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setSaving(true);
+    setFormError("");
     try {
-      await fetch("/api/vps", {
+      const created = await apiRequest("/api/vps", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData)
+        body: { ...formData, port: Number(formData.port) },
       });
-      setShowAddModal(false);
-      setFormData({ name: "", ip: "", location: "Brasil", user: "root", ssh_key: "", password: "", sudo_password: "" });
       refresh();
-    } catch (e) {
-      alert("Erro ao adicionar servidor");
+      setServers((current) => [...current, connectingServer(created)]);
+      setSelectedId(created.id);
+      setShowAddModal(false);
+      setFormData({ ...emptyServerForm });
+    } catch (failure) {
+      if (failure.status === 401) onSessionExpired();
+      else setFormError(failure.message);
+    } finally {
+      setSaving(false);
     }
-    setLoading(false);
   };
 
   const handleDelete = async (id) => {
-    setLoading(true);
+    setSaving(true);
+    setError("");
     try {
-      await fetch(`/api/vps/${id}`, { method: "DELETE" });
-      setSelected(null);
+      await apiRequest(`/api/vps/${id}`, { method: "DELETE" });
+      setServers((current) => current.filter((server) => server.id !== id));
+      setSelectedId(null);
       refresh();
-    } catch (e) {
-      alert("Erro ao remover servidor");
+    } catch (failure) {
+      if (failure.status === 401) onSessionExpired();
+      else setError(failure.message);
+    } finally {
+      setSaving(false);
     }
-    setLoading(false);
   };
 
-  useEffect(() => { refresh(); }, []);
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await onLogout();
+    } catch (failure) {
+      if (failure.status === 401) onSessionExpired();
+      else setError(failure.message);
+      setLoggingOut(false);
+    }
+  }
 
-  const online = servers.filter((s) => s.status === "online").length;
-  const warning = servers.filter((s) => s.status === "warning" || s.cpu > 65 || pct(s.disk.used, s.disk.total) > 75).length;
+  const offline = servers.filter((s) => s.status === "offline").length;
+  const connecting = servers.filter((s) => s.status === "connecting").length;
+  const warning = servers.filter((s) => s.status !== "offline" && s.status !== "connecting" && (s.status === "warning" || s.cpu > 65 || pct(s.disk.used, s.disk.total) > 75)).length;
+  const online = servers.length - offline - warning - connecting;
 
   return (
     <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@700;800&display=swap');
-        :root { --accent: #00e5a0; }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #04040d; color: #e8e8ff; font-family: 'Syne', sans-serif; min-height: 100vh; }
-        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: #080810; } ::-webkit-scrollbar-thumb { background: #1e1e3a; border-radius: 2px; }
-        @keyframes ping { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.4); opacity: 0; } }
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
-
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 20px", minHeight: "100vh" }}>
+        <div className="account-bar">
+          <span>Olá, <strong>{user.name}</strong> <span className="account-email">· {user.email}</span></span>
+          <button className="secondary-button" disabled={loggingOut || saving} onClick={handleLogout}>{loggingOut ? "Saindo..." : "Sair da conta"}</button>
+        </div>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32 }}>
+        <div className="dashboard-header">
           <div>
             <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5 }}>
               <span style={{ color: "var(--accent)" }}>VPS</span> Monitor
             </h1>
             <div style={{ fontSize: 12, color: "#444", fontFamily: "monospace", marginTop: 2 }}>
-              {servers.length} servidores · atualizado {lastRefresh.toLocaleTimeString()}
+              {servers.length} servidores · {lastRefresh ? `atualizado ${lastRefresh.toLocaleTimeString()}` : "aguardando atualização"}
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div className="dashboard-actions">
             {/* Summary badges */}
             <div style={{ display: "flex", gap: 8 }}>
               {[
                 { label: `${online} online`, color: "#00e5a0" },
                 { label: `${warning} atenção`, color: "#ffaa00" },
-                { label: `${servers.length - online - warning < 0 ? 0 : servers.length - online - warning} offline`, color: "#ff3b3b" },
+                { label: `${offline} offline`, color: "#ff3b3b" },
+                ...(connecting ? [{ label: `${connecting} conectando`, color: "#78a7ff" }] : []),
               ].map(({ label, color }) => (
                 <span key={label} style={{
                   fontSize: 11, color, background: `${color}18`, border: `1px solid ${color}44`,
@@ -361,7 +485,8 @@ export default function App() {
             </div>
 
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => { setFormError(""); setShowAddModal(true); }}
+              disabled={saving || loggingOut}
               style={{
                 background: "var(--accent)", border: "none", color: "#04040d",
                 borderRadius: 8, padding: "8px 16px", cursor: "pointer",
@@ -375,7 +500,7 @@ export default function App() {
             {/* Refresh button */}
             <button
               onClick={refresh}
-              disabled={loading}
+              disabled={loading || saving}
               style={{
                 background: "transparent", border: "1px solid #1e1e3a", color: loading ? "#333" : "#888",
                 borderRadius: 8, padding: "8px 16px", cursor: loading ? "not-allowed" : "pointer",
@@ -389,8 +514,18 @@ export default function App() {
           </div>
         </div>
 
+        {error && <div className="error-message dashboard-error" role="alert">{error}</div>}
+
+        {!servers.length && (
+          <div className="empty-state" role="status">
+            <h2>{loading ? "Buscando suas VPS..." : "Seu painel começa aqui"}</h2>
+            <p>{loading ? "Aguarde enquanto consultamos seus servidores." : "Adicione sua primeira VPS. Ela ficará salva na sua conta para os próximos acessos."}</p>
+            {!loading && <button className="primary-button" onClick={() => { setFormError(""); setShowAddModal(true); }}>+ ADICIONAR VPS</button>}
+          </div>
+        )}
+
         {/* Main layout */}
-        <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 20, alignItems: "start" }}>
+        {!!servers.length && <div className="dashboard-grid">
           {/* Server list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {servers.map((s) => (
@@ -398,7 +533,7 @@ export default function App() {
                 key={s.id}
                 server={s}
                 selected={selected?.id === s.id}
-                onClick={() => setSelected(s.id === selected?.id ? null : s)}
+                onClick={() => setSelectedId(s.id === selectedId ? null : s.id)}
               />
             ))}
           </div>
@@ -408,9 +543,9 @@ export default function App() {
             background: "#080810", border: "1px solid #1e1e3a", borderRadius: 12,
             padding: 24, minHeight: 480, position: "sticky", top: 20,
           }}>
-            <DetailPanel server={selected} onDelete={handleDelete} />
+            <DetailPanel server={selected} onDelete={handleDelete} deleting={saving} />
           </div>
-        </div>
+        </div>}
 
         {/* Modal Adicionar VPS */}
         {showAddModal && (
@@ -418,26 +553,31 @@ export default function App() {
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(4px)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20
           }}>
-            <div style={{
+            <div role="dialog" aria-modal="true" aria-labelledby="new-server-title" className="server-modal" style={{
               background: "#080810", border: "1px solid #1e1e3a", borderRadius: 16,
               padding: 32, maxWidth: 500, width: "100%", boxShadow: "0 20px 50px rgba(0,0,0,0.5)"
             }}>
-              <h2 style={{ margin: "0 0 24px 0", fontSize: 22 }}>Novo Servidor</h2>
+              <h2 id="new-server-title" style={{ margin: "0 0 24px 0", fontSize: 22 }}>Novo Servidor</h2>
               <form onSubmit={handleAdd} style={{ display: "grid", gap: 16 }}>
                 {[
                   { label: "Nome do Servidor", key: "name", placeholder: "ex: Produção" },
-                  { label: "IP do Servidor", key: "ip", placeholder: "191.252.000.00" },
+                  { label: "IP público do Servidor", key: "ip", placeholder: "IPv4 ou IPv6 da VPS" },
+                  { label: "Porta SSH", key: "port", placeholder: "22", type: "number" },
                   { label: "Localização", key: "location", placeholder: "Brasil" },
-                  { label: "Usuário", key: "user", placeholsder: "root" },
-                  { label: "Chave SSH", key: "ssh_key", placeholder: "C:\\Users\\Username\\.ssh\\ed25519'" },
+                  { label: "Usuário SSH", key: "user", placeholder: "root" },
                   { label: "Senha SSH (opcional)", key: "password", placeholder: "Senha se não usar chave", type: "password" },
-                  { label: "Senha Sudo (opcional)", key: "sudo_password", placeholder: "Caso o usuário não seja root", type: "password" },
                 ].map(({ label, key, placeholder, type = "text" }) => (
                   <div key={key}>
-                    <label style={{ display: "block", fontSize: 10, color: "#666", letterSpacing: 1, marginBottom: 6 }}>{label.toUpperCase()}</label>
+                    <label htmlFor={`vps-${key}`} style={{ display: "block", fontSize: 10, color: "#999", letterSpacing: 1, marginBottom: 6 }}>{label.toUpperCase()}</label>
                     <input 
+                      id={`vps-${key}`}
                       type={type}
-                      required={key !== "password" && key !== "ssh_key"}
+                      required={key !== "password"}
+                      disabled={saving}
+                      maxLength={key === "password" ? 1024 : key === "ip" ? 45 : 100}
+                      min={key === "port" ? 1 : undefined}
+                      max={key === "port" ? 65535 : undefined}
+                      autoComplete={key === "password" ? "new-password" : "off"}
                       value={formData[key]}
                       onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
                       placeholder={placeholder}
@@ -449,10 +589,19 @@ export default function App() {
                     />
                   </div>
                 ))}
+                <label className="vps-key-label" htmlFor="vps-ssh-key">CHAVE PRIVADA SSH (OPCIONAL)
+                  <textarea id="vps-ssh-key" rows={4} maxLength={32768} placeholder="Cole o conteúdo da chave privada, incluindo BEGIN e END" value={formData.ssh_key} onChange={(e) => setFormData({ ...formData, ssh_key: e.target.value })} disabled={saving} autoComplete="off" spellCheck={false} />
+                  <small>Preencha a senha SSH ou a chave privada. Se preencher os dois, a chave será usada.</small>
+                </label>
+                {formData.ssh_key && <label className="vps-key-label" htmlFor="vps-passphrase">SENHA DA CHAVE (OPCIONAL)
+                  <input id="vps-passphrase" type="password" maxLength={1024} value={formData.passphrase} onChange={(e) => setFormData({ ...formData, passphrase: e.target.value })} disabled={saving} autoComplete="new-password" />
+                </label>}
+                {formError && <div className="error-message" role="alert">{formError}</div>}
                 <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
                   <button 
                     type="button" 
-                    onClick={() => setShowAddModal(false)}
+                    disabled={saving}
+                    onClick={() => { setShowAddModal(false); setFormData({ ...emptyServerForm }); setFormError(""); }}
                     style={{
                       flex: 1, background: "transparent", border: "1px solid #1e1e3a",
                       color: "#888", borderRadius: 8, padding: "12px", cursor: "pointer",
@@ -463,13 +612,14 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
+                    disabled={saving}
                     style={{
                       flex: 1, background: "var(--accent)", border: "none",
                       color: "#04040d", borderRadius: 8, padding: "12px", cursor: "pointer",
                       fontFamily: "monospace", fontWeight: 700
                     }}
                   >
-                    SALVAR
+                    {saving ? "SALVANDO..." : "SALVAR"}
                   </button>
                 </div>
               </form>
@@ -479,7 +629,7 @@ export default function App() {
 
         {/* Footer */}
         <div style={{ marginTop: 32, textAlign: "center", fontSize: 11, color: "#333", fontFamily: "monospace" }}>
-          Para conectar às suas VPS reais, veja o arquivo README incluído
+          Suas VPS estão salvas na sua conta · atualização automática a cada 30 segundos
         </div>
       </div>
     </>

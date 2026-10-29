@@ -25,3 +25,8 @@ Thumbs.db
 # Project Specific
 back-end/servers.json
 test_ssh_debug.py
+.cache/
+.tools/
+*.db
+*.sqlite3
+.artifacts/
