@@ -328,7 +328,7 @@ export default function App() {
   return <Dashboard key={user.id} user={user} onLogout={logout} onSessionExpired={sessionExpired} />;
 }
 
-const emptyServerForm = { name: "", ip: "", port: 22, location: "Brasil", user: "root", ssh_key: "", password: "", passphrase: "" };
+const emptyServerForm = { name: "", ip: "", port: 22, location: "Brasil", user: "root", ssh_key: "", password: "", passphrase: "", host_key_fingerprint: "" };
 
 function connectingServer(server) {
   return {
@@ -589,6 +589,11 @@ function Dashboard({ user, onLogout, onSessionExpired }) {
                     />
                   </div>
                 ))}
+                <div className="vps-key-label">
+                  <label htmlFor="vps-host-fingerprint">IDENTIDADE SSH DA VPS (SHA256)</label>
+                  <input id="vps-host-fingerprint" value={formData.host_key_fingerprint} maxLength={100} onChange={(e) => setFormData({ ...formData, host_key_fingerprint: e.target.value })} disabled={saving} placeholder="SHA256:..." autoComplete="off" spellCheck={false} aria-describedby="vps-host-fingerprint-hint" />
+                  <small id="vps-host-fingerprint-hint">Confirme esta fingerprint no console do provedor da VPS. Ela identifica o servidor que receberá suas credenciais.</small>
+                </div>
                 <label className="vps-key-label" htmlFor="vps-ssh-key">CHAVE PRIVADA SSH (OPCIONAL)
                   <textarea id="vps-ssh-key" rows={4} maxLength={32768} placeholder="Cole o conteúdo da chave privada, incluindo BEGIN e END" value={formData.ssh_key} onChange={(e) => setFormData({ ...formData, ssh_key: e.target.value })} disabled={saving} autoComplete="off" spellCheck={false} />
                   <small>Preencha a senha SSH ou a chave privada. Se preencher os dois, a chave será usada.</small>

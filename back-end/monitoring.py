@@ -1,10 +1,34 @@
 import datetime
+import base64
+import hashlib
+import hmac
 import io
 
 import paramiko
 
 
+class UntrustedHostKey(paramiko.SSHException):
+    pass
+
+
+class PinnedHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    def __init__(self, expected):
+        self.expected = expected
+
+    def missing_host_key(self, client, hostname, key):
+        actual = "SHA256:" + base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip("=")
+        if not self.expected or not hmac.compare_digest(actual.encode(), self.expected.encode()):
+            raise UntrustedHostKey("A identidade SSH da VPS não foi confirmada.")
+
+
 def connect_ssh(ssh, server):
+    fingerprint = server.get("host_key_fingerprint", "")
+    if fingerprint or server.get("_require_host_fingerprint"):
+        # Verification happens before Paramiko sends any password or SSH authentication.
+        ssh.set_missing_host_key_policy(PinnedHostKeyPolicy(fingerprint))
+    else:
+        # Compatibility for local development; production always requires a pin.
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     options = {
         "hostname": server["ip"],
         "port": server.get("port", 22),
@@ -35,6 +59,8 @@ def connect_ssh(ssh, server):
 
 
 def ssh_error_message(error):
+    if isinstance(error, (UntrustedHostKey, paramiko.BadHostKeyException)):
+        return "A identidade SSH da VPS não foi confirmada. Confira a fingerprint no console do provedor e cadastre a VPS com a chave correta."
     if isinstance(error, paramiko.AuthenticationException):
         return "Falha na autenticação SSH. Confira o usuário e as credenciais."
     if isinstance(error, paramiko.PasswordRequiredException):
@@ -86,7 +112,6 @@ def fetch_vps_metrics(server):
     }
 
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     try:
         connect_ssh(ssh, server)
@@ -185,7 +210,6 @@ def fetch_vps_metrics(server):
 def debug_vps_ssh(server):
     entry = {"name": server["name"], "ip": server["ip"], "user": server["user"]}
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         connect_ssh(ssh, server)
         _, stdout, _ = ssh.exec_command("echo OK", timeout=8)

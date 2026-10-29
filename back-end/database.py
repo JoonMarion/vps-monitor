@@ -58,10 +58,11 @@ class VPSServer(Base):
         return {**self.public_data(), **credentials}
 
 
-def create_database(database_url):
+def create_database(database_url, *, initialize=True):
     url = make_url(database_url)
     if url.drivername in {"postgres", "postgresql"}:
         url = url.set(drivername="postgresql+psycopg")
     engine = create_engine(url, pool_pre_ping=True, hide_parameters=True)
-    Base.metadata.create_all(engine)
+    if initialize:
+        Base.metadata.create_all(engine)
     return engine, sessionmaker(bind=engine, expire_on_commit=False)

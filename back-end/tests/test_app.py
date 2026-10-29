@@ -205,6 +205,68 @@ class AccountIsolationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("ssh-password-secret", response.get_data(as_text=True))
 
+    def test_account_quota_is_enforced(self):
+        self.app.config["MAX_VPS_PER_USER"] = 1
+        self.register()
+        self.assertEqual(self.add_server().status_code, 201)
+        self.assertEqual(self.add_server().status_code, 409)
+        other = self.app.test_client()
+        self.register(other, "bruno@example.com")
+        self.assertEqual(self.add_server(other).status_code, 201)
+
+    def test_invalid_host_fingerprint_is_rejected(self):
+        self.register()
+        self.assertEqual(self.add_server(host_key_fingerprint="not-a-fingerprint").status_code, 400)
+
+    def test_production_requires_secure_cookies_hosts_and_no_debug(self):
+        for overrides in ({"SESSION_COOKIE_SECURE": False}, {"TRUSTED_HOSTS": None}, {"DEBUG": True}):
+            settings = {**self.config, "APP_ENV": "production", "SESSION_COOKIE_SECURE": True,
+                        "TRUSTED_HOSTS": ["vps-monitor.net"], "DEBUG": False, **overrides}
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(RuntimeError):
+                    create_app(settings)
+
+    def test_production_limits_ports_and_requires_host_identity(self):
+        production = create_app({**self.config, "APP_ENV": "production", "SESSION_COOKIE_SECURE": True,
+                                 "TRUSTED_HOSTS": ["vps-monitor.net"], "DEBUG": False})
+        try:
+            client = production.test_client()
+            base_url = "https://vps-monitor.net"
+            token = client.get("/api/auth/me", base_url=base_url).json["csrf_token"]
+            response = client.post("/api/auth/register", base_url=base_url, headers={"X-CSRF-Token": token},
+                                   json={"name": "Ana", "email": "production@example.com", "password": "a secure password"})
+            self.assertEqual(response.status_code, 201)
+            headers = {"X-CSRF-Token": response.json["csrf_token"]}
+            self.assertIsNotNone(client.get_cookie("__Host-vps_monitor_session", domain="vps-monitor.net"))
+            data = {"name": "Prod", "ip": "8.8.8.8", "password": "ssh-password"}
+            self.assertEqual(client.post("/api/vps", base_url=base_url, json=data, headers=headers).status_code, 400)
+            data["host_key_fingerprint"] = "SHA256:" + "A" * 43
+            self.assertEqual(client.post("/api/vps", base_url=base_url, json={**data, "port": 2222}, headers=headers).status_code, 400)
+            self.assertEqual(client.post("/api/vps", base_url=base_url, json=data, headers=headers).status_code, 201)
+            with patch("app.fetch_vps_metrics", side_effect=lambda server: {"strict": server["_require_host_fingerprint"]}):
+                self.assertEqual(client.get("/api/vps", base_url=base_url).json, [{"strict": True}])
+        finally:
+            production.extensions["db_engine"].dispose()
+
+    def test_untrusted_http_host_is_rejected(self):
+        self.app.config["TRUSTED_HOSTS"] = ["vps-monitor.net"]
+        self.assertEqual(self.client.get("/api/auth/me", headers={"Host": "evil.example"}).status_code, 400)
+        self.assertEqual(self.client.get("/api/auth/me", headers={"Host": "vps-monitor.net"}).status_code, 200)
+
+    def test_tables_can_be_initialized_explicitly(self):
+        other_path = Path(self.directory.name) / "new.sqlite3"
+        application = create_app({**self.config, "DATABASE_URL": "sqlite:///" + other_path.as_posix(),
+                                  "AUTO_CREATE_TABLES": False})
+        try:
+            from sqlalchemy import inspect
+            engine = application.extensions["db_engine"]
+            self.assertEqual(inspect(engine).get_table_names(), [])
+            result = application.test_cli_runner().invoke(args=["init-db"])
+            self.assertEqual(result.exit_code, 0, result.output)
+            self.assertIn("users", inspect(engine).get_table_names())
+        finally:
+            application.extensions["db_engine"].dispose()
+
 
 if __name__ == "__main__":
     unittest.main()

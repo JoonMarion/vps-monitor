@@ -82,7 +82,13 @@ Todas as operações de escrita exigem o cabeçalho `X-CSRF-Token` obtido em `/a
 
 ## Build e hospedagem
 
-Execute `npm.cmd run build` em `front-end`. O backend também serve o conteúdo de `front-end/dist`, permitindo publicar frontend e API na mesma origem. Use um servidor WSGI apropriado em produção, apontando para a factory `app:create_app()`, com o diretório de trabalho `back-end`, HTTPS e `SESSION_COOKIE_SECURE=true`.
+O roteiro completo para **Ubuntu 24.04, Nginx existente e vps-monitor.net** está em [deploy/ubuntu24.md](deploy/ubuntu24.md). Inclui pacote sem segredos, Gunicorn por socket Unix, unit systemd com privilégios reduzidos, limites do Nginx, HTTPS/renovação, permissões do banco e validação da identidade SSH.
+
+Execute `npm.cmd run build` em `front-end` e `python deploy/build_package.py` na raiz para gerar `.artifacts/vps-monitor-release.tar.gz`. O backend serve `front-end/dist`; Node/Vite não são necessários no servidor. Os modelos ficam em `deploy/` e o lock com versões e hashes para Ubuntu x86-64/Python 3.12 em `back-end/requirements-production.lock`.
+
+Com `APP_ENV=production`, o backend exige cookies seguros, domínios confiáveis, debug desabilitado e fingerprint SSH no cadastro. O banco é inicializado explicitamente por `flask --app app init-db`; o serviço não cria tabelas automaticamente. A quota padrão é de 10 VPS por conta. Configure `SSH_ALLOWED_PORTS` com as portas autorizadas. A fingerprint é salva com as credenciais criptografadas, sem alteração no schema das tabelas existentes.
+
+Se reutilizar o banco local, mantenha a `VPS_ENCRYPTION_KEY` já utilizada. VPS antigas sem fingerprint precisam ser cadastradas com sua identidade confirmada para coletar métricas em produção. O `.env.example` contém apenas placeholders; conexões reais pertencem ao `.env` ignorado pelo Git ou ao arquivo protegido de ambiente no servidor.
 
 ## Validação
 

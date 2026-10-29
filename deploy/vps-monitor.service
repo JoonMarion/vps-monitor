@@ -1,0 +1,46 @@
+[Unit]
+Description=VPS Monitor - Gunicorn
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=vps-monitor
+Group=www-data
+WorkingDirectory=/opt/vps-monitor/back-end
+EnvironmentFile=/etc/vps-monitor/vps-monitor.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+RuntimeDirectory=vps-monitor
+RuntimeDirectoryMode=0750
+ExecStart=/opt/vps-monitor/.venv/bin/gunicorn --config /opt/vps-monitor/deploy/gunicorn.conf.py app:create_app()
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=1G
+TasksMax=256
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
